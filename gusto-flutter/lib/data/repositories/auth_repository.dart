@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:supabase_flutter/supabase_flutter.dart' show OAuthProvider;
-import 'package:firebase_auth/firebase_auth.dart' hide OAuthProvider;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
@@ -72,20 +71,8 @@ class AuthRepository {
   }
 
   Future<UserModel> upsertSupabaseUser(User firebaseUser) async {
-    // Sync Firebase Auth with Supabase using Third-Party Auth
-    try {
-      final idToken = await firebaseUser.getIdToken();
-      if (idToken != null) {
-        await supabase.auth.signInWithIdToken(
-          provider: OAuthProvider.google,
-          idToken: idToken,
-        );
-        print('✅ Supabase Auth synced successfully using Firebase ID Token.');
-      }
-    } catch (e) {
-      print('⚠️ Supabase Auth Sync Error (ignoring in dev/local environments): $e');
-    }
-
+    // The accessToken closure in Supabase.initialize already attaches the
+    // Firebase JWT to every request — no separate Supabase Auth session needed.
     final existing = await supabase
         .from('users')
         .select()
@@ -128,9 +115,6 @@ class AuthRepository {
   Future<void> signOut() async {
     await _auth?.signOut();
     await _googleSignIn.signOut();
-    try {
-      await supabase.auth.signOut();
-    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefUserId);
   }

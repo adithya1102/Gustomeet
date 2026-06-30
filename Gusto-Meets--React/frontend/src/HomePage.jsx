@@ -1,288 +1,261 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase } from './supabaseClient';
-import { Search, SlidersHorizontal, MapPin, Users, Star, Heart, Loader2 } from 'lucide-react';
-import { auth } from './firebase.js';
-import { onAuthStateChanged } from 'firebase/auth';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import { supabase } from './supabaseClient'; 
+import { Search, MapPin, Users, PlusCircle, ChevronDown, Check,Star} from 'lucide-react'; 
 
-const PURPOSES = [
-  { label: 'All', value: null },
-  { label: 'Party', value: 'PARTY' },
-  { label: 'Meetups', value: 'CASUAL_MEETUP' },
-  { label: 'Dance', value: 'DANCE_PRACTICE' },
-  { label: 'Flash Mob', value: 'FLASH_MOB' },
-  { label: 'Community', value: 'COMMUNITY_CONNECT' },
-  { label: 'Personal Time', value: 'PERSONAL_TIME' },
-  { label: 'Tuition', value: 'TUITION' },
-  { label: 'Indoor Sports', value: 'SPORTS_INDOOR' },
-  { label: 'Concert', value: 'MUSIC_CONCERT' },
-  { label: 'Other', value: 'OTHER' },
+// Pre-defined cities based on your UI reference
+const CITIES = ["Chennai", "Bangalore", "Mumbai", "Delhi", "Hyderabad"];
+
+// Categories mapped directly to your terrace_permissions schema
+const CATEGORIES = [
+  { id: 'all', label: "All Spaces" },
+  { id: 'couples', label: "Couples Allowed" },
+  { id: 'party', label: "Party Friendly" },
+  { id: 'alcohol', label: "BYOB Allowed" },
+  { id: 'overnight', label: "Overnight Stays" }
 ];
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchQuery = searchParams.get('search') || '';
-  const selectedPurpose = searchParams.get('purpose') || null;
-  const [spaces, setSpaces] = useState([]);
+  
+  // Data State
+  const [allSpaces, setAllSpaces] = useState([]);
+  const [displayedSpaces, setDisplayedSpaces] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  // Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCity, setSelectedCity] = useState('Chennai');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  
+  // UI State
+  const [isLocationOpen, setIsLocationOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u?.displayName) setUserName(u.displayName.split(' ')[0]);
-    });
-    return () => unsub();
-  }, []);
-
+  // Fetch all active spaces on load
   useEffect(() => {
     const fetchSpaces = async () => {
-      setLoading(true);
-      let query = supabase
+      const { data, error } = await supabase
         .from('terraces')
         .select(`
-          id, title, city, area, address_line, max_capacity, creator_ready,
+          id, title, city, address_line, max_capacity,
           terrace_rates ( rate ),
-          terrace_images ( image_url ),
-          terrace_permissions ( allowed_purposes )
+          terrace_images ( image_url, is_cover ),
+          terrace_permissions ( allow_couples, allow_loud_music, allow_alcohol, allow_overnight )
         `)
         .eq('is_active', true);
-
-      const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching spaces:", error);
       } else {
-        let filtered = data || [];
-
-        // Filter by selected purpose chip
-        if (selectedPurpose) {
-          filtered = filtered.filter(space => {
-            const permissions = space.terrace_permissions;
-            const allowed = (Array.isArray(permissions) ? permissions[0] : permissions)?.allowed_purposes || [];
-            return allowed.includes(selectedPurpose);
-          });
-        }
-
-        // Filter by search query
-        if (searchQuery) {
-          const lowerQuery = searchQuery.toLowerCase();
-          filtered = filtered.filter(space => {
-            return (
-              (space.title && space.title.toLowerCase().includes(lowerQuery)) ||
-              (space.city && space.city.toLowerCase().includes(lowerQuery)) ||
-              (space.area && space.area.toLowerCase().includes(lowerQuery)) ||
-              (space.address_line && space.address_line.toLowerCase().includes(lowerQuery))
-            );
-          });
-        }
-
-        setSpaces(filtered);
+        setAllSpaces(data || []);
       }
       setLoading(false);
     };
 
     fetchSpaces();
-  }, [selectedPurpose, searchQuery]);
+  }, []);
+
+  // Filter Engine: Runs whenever data, search, city, or category changes
+  useEffect(() => {
+    let filtered = [...allSpaces];
+
+    // 1. Filter by City
+    if (selectedCity) {
+      filtered = filtered.filter(space => 
+        space.city?.toLowerCase() === selectedCity.toLowerCase()
+      );
+    }
+
+    // 2. Filter by Search Query (Title or Address)
+    if (searchQuery.trim() !== '') {
+      const lowerQuery = searchQuery.toLowerCase();
+      filtered = filtered.filter(space => 
+        space.title?.toLowerCase().includes(lowerQuery) || 
+        space.address_line?.toLowerCase().includes(lowerQuery)
+      );
+    }
+
+    // 3. Filter by Schema Category (Permissions)
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(space => {
+        const perms = space.terrace_permissions?.[0] || {};
+        switch (selectedCategory) {
+          case 'couples': return perms.allow_couples === true;
+          case 'party': return perms.allow_loud_music === true;
+          case 'alcohol': return perms.allow_alcohol === true;
+          case 'overnight': return perms.allow_overnight === true;
+          default: return true;
+        }
+      });
+    }
+
+    setDisplayedSpaces(filtered);
+  }, [allSpaces, searchQuery, selectedCity, selectedCategory]);
+
+  // Handle clicking outside the location dropdown to close it
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsLocationOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
-      {/* Hero / Top Section */}
-      <div className="bg-white border-b border-[#E5E7EB]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-            <div>
-              <h1 className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#111827]">
-                {userName ? `${greeting}, ${userName}` : 'Find your space'}
-              </h1>
-              <div className="flex items-center gap-1.5 mt-2 text-[#6B7280] text-sm cursor-pointer hover:text-[#10B981] transition-colors w-fit">
-                <MapPin size={14} />
-                <span>Chennai</span>
-                <span className="text-[#9CA3AF]">▾</span>
-              </div>
-            </div>
+    <div className="min-h-screen bg-[#0e1a12] flex font-sans">
+      <Sidebar />
 
-            {/* Mobile Search Trigger */}
-            <button 
-              onClick={() => setSearchOpen(true)}
-              className="md:hidden flex items-center gap-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm text-[#6B7280]"
-            >
-              <Search size={16} />
-              Search terraces...
-            </button>
+      <main className="flex-1 ml-64 p-8 lg:p-12 text-white">
+        
+        {/* Top Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold mb-1 text-white tracking-tight">Explore Terraces</h1>
+            <p className="text-[#9ca89e] text-sm">Find the perfect urban oasis for your next event.</p>
           </div>
 
-          {/* Filter Chips */}
-          <div className="flex items-center gap-2 mt-5 overflow-x-auto pb-1 scrollbar-hide">
-            {PURPOSES.map((p) => {
-              const isSelected = selectedPurpose === p.value;
-              return (
-                <button
-                  key={p.label}
-                  onClick={() => {
-                    const newParams = { ...Object.fromEntries(searchParams) };
-                    if (p.value) {
-                      newParams.purpose = p.value;
-                    } else {
-                      delete newParams.purpose;
-                    }
-                    setSearchParams(newParams);
-                  }}
-                  className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-                    isSelected
-                      ? 'bg-[#ECFDF5] text-[#10B981] border-[#10B981]'
-                      : 'bg-white text-[#111827] border-[#E5E7EB] hover:border-[#D1D5DB]'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-            <button className="shrink-0 p-2 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:border-[#D1D5DB] hover:text-[#111827] transition-all">
-              <SlidersHorizontal size={16} />
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            {/* List Your Terrace Button */}
+            <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#2e5a38] text-[#4ade80] hover:bg-[#1e3a28] transition-colors text-sm font-medium">
+              <PlusCircle size={16} />
+              List Your Terrace
             </button>
-          </div>
-        </div>
-      </div>
 
-      {/* Mobile Search Overlay */}
-      {searchOpen && (
-        <div className="fixed inset-0 z-50 bg-white md:hidden">
-          <div className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <button onClick={() => setSearchOpen(false)} className="p-2 -ml-2 text-[#6B7280]">
-                <span className="text-2xl">←</span>
+            {/* Location Dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button 
+                onClick={() => setIsLocationOpen(!isLocationOpen)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1e3a28] hover:bg-[#2a4f32] text-gray-200 transition-colors text-sm font-medium border border-[#2e5a38]"
+              >
+                {selectedCity}
+                <ChevronDown size={16} className={`transition-transform ${isLocationOpen ? 'rotate-180' : ''}`} />
               </button>
-              <input 
-                autoFocus
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val) {
-                    setSearchParams({ ...Object.fromEntries(searchParams), search: val });
-                  } else {
-                    const copy = Object.fromEntries(searchParams);
-                    delete copy.search;
-                    setSearchParams(copy);
-                  }
-                }}
-                placeholder="Search terraces, lofts..."
-                className="flex-1 text-lg outline-none"
-              />
+
+              {/* Dropdown Menu */}
+              {isLocationOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-[#141f17] border border-[#2e5a38] rounded-xl shadow-2xl py-2 z-50">
+                  <div className="px-3 py-1 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#6b7c6e]">Select City</span>
+                  </div>
+                  {CITIES.map(city => (
+                    <button
+                      key={city}
+                      onClick={() => {
+                        setSelectedCity(city);
+                        setIsLocationOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-[#1e3a28] flex items-center justify-between transition-colors"
+                    >
+                      <span className={selectedCity === city ? "text-[#4ade80]" : "text-gray-300"}>{city}</span>
+                      {selectedCity === city && <Check size={14} className="text-[#4ade80]" />}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Wide Search Bar */}
+        <div className="bg-[#141f17] border border-[#1e3a28] rounded-xl flex items-center p-3.5 mb-6 shadow-sm w-full transition-colors focus-within:border-[#4ade80]">
+          <Search className="text-[#6b7c6e] w-5 h-5 ml-2 mr-3" />
+          <input 
+            type="text" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search spaces by name, landmark, or area..." 
+            className="bg-transparent border-none outline-none text-sm w-full text-white placeholder:text-[#6b7c6e]"
+          />
+        </div>
+
+        {/* Dynamic Categories / Filters */}
+        <div className="flex gap-3 mb-10 overflow-x-auto scrollbar-hide pb-2">
+          {CATEGORIES.map((cat) => {
+            const isActive = selectedCategory === cat.id;
+            return (
+              <button 
+                key={cat.id} 
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-medium transition-all ${
+                  isActive 
+                    ? 'bg-[#4ade80] text-[#0e1a12] border border-[#4ade80]' 
+                    : 'bg-[#141f17] border border-[#1e3a28] text-gray-300 hover:border-[#4ade80]/50 hover:text-white'
+                }`}
+              >
+                {cat.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Grid Display */}
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden animate-pulse">
-                <div className="aspect-[4/3] bg-[#F3F4F6]" />
-                <div className="p-4 space-y-3">
-                  <div className="h-4 bg-[#F3F4F6] rounded w-3/4" />
-                  <div className="h-3 bg-[#F3F4F6] rounded w-1/2" />
-                  <div className="h-3 bg-[#F3F4F6] rounded w-2/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : spaces.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-[#F3F4F6] rounded-2xl flex items-center justify-center mb-4">
-              <Search className="w-8 h-8 text-[#9CA3AF]" />
-            </div>
-            <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827] mb-1">
-              No spaces available
-            </h3>
-            <p className="text-[#6B7280] text-sm max-w-xs">
-              Try adjusting your filters or check back later for new listings.
-            </p>
-          </div>
+          <div className="text-[#6b7c6e] flex items-center justify-center py-20">Loading spaces...</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {spaces.map((space) => {
-              const rate = space.terrace_rates?.[0]?.rate;
-              const coverImage = space.terrace_images?.[0]?.image_url;
-
-              return (
-                <div
-                  key={space.id}
-                  onClick={() => navigate(`/space/${space.id}`)}
-                  className="group cursor-pointer bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden hover:shadow-lg hover:border-[#D1D5DB] transition-all duration-300"
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
+            
+            {displayedSpaces.length === 0 ? (
+              <div className="col-span-full py-20 text-center border border-dashed border-[#1e3a28] rounded-2xl bg-[#141f17]/50">
+                <p className="text-gray-400">No spaces found matching your search in {selectedCity}.</p>
+                <button 
+                  onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }} 
+                  className="mt-4 text-[#4ade80] text-sm hover:underline"
                 >
-                  {/* Image */}
-                  <div className="relative aspect-[4/3] bg-[#F3F4F6] overflow-hidden">
-                    {coverImage ? (
-                      <img
-                        src={coverImage}
-                        alt={space.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-5xl text-[#D1D5DB]">
-                        🏞️
-                      </div>
-                    )}
-                    
-                    {/* Creator Ready Badge */}
-                    {space.creator_ready && (
-                      <div className="absolute top-3 left-3 px-2.5 py-1 bg-[#10B981] text-white text-xs font-semibold rounded-md">
-                        Creator Ready
-                      </div>
-                    )}
-                    
-                    {/* Favorite Button */}
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); }}
-                      className="absolute top-3 right-3 p-2 bg-white/80 backdrop-blur-sm rounded-full text-[#6B7280] hover:text-[#EF4444] hover:bg-white transition-all"
-                    >
-                      <Heart size={16} />
-                    </button>
-                  </div>
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              displayedSpaces.map((space) => {
+                const rate = space.terrace_rates?.[0]?.rate || "N/A";
+                // Try to find the cover image, otherwise just use the first image in the array
+                const coverImage = space.terrace_images?.find(img => img.is_cover)?.image_url 
+                                || space.terrace_images?.[0]?.image_url;
 
-                  {/* Info */}
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-[#111827] text-sm truncate">
-                          {space.title}
-                        </h3>
-                        <p className="text-[#6B7280] text-xs mt-0.5 truncate">
-                          {space.area}{space.city ? `, ${space.city}` : ''}
+                return (
+                  <div 
+                    key={space.id} 
+                    onClick={() => navigate(`/space/${space.id}`)}
+                    className="group cursor-pointer flex flex-col"
+                  >
+                    {/* Image Card */}
+                    <div className="relative aspect-[4/3] rounded-2xl overflow-hidden mb-3 bg-[#1e3a28] border border-[#1e3a28] group-hover:border-[#4ade80]/50 transition-colors">
+                      <button className="absolute top-3 right-3 p-2 bg-black/30 backdrop-blur-md hover:bg-black/60 rounded-full z-10 text-white transition-all">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                      </button>
+                      {coverImage ? (
+                        <img src={coverImage} alt={space.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[#2a4f32] text-5xl group-hover:scale-105 transition-transform duration-700">⛰️</div>
+                      )}
+                    </div>
+                    
+                    {/* Info Section */}
+                    <div className="flex justify-between items-start">
+                      <div className="pr-4">
+                        <h3 className="font-semibold text-base truncate text-gray-100">{space.city}, India</h3>
+                        <p className="text-[#9ca89e] text-sm mt-0.5 truncate">{space.title}</p>
+                        <p className="text-[#6b7c6e] text-xs mt-1 flex items-center gap-1">
+                          <Users size={12} /> Up to {space.max_capacity} guests
                         </p>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Star size={13} className="text-[#F59E0B] fill-[#F59E0B]" />
-                        <span className="text-xs font-medium text-[#111827]">4.8</span>
+                      <div className="flex items-center gap-1 text-sm shrink-0">
+                        <Star size={14} className="text-[#4ade80] fill-[#4ade80]" />
+                        <span className="text-gray-200">4.9</span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1 mt-2 text-[#9CA3AF] text-xs">
-                      <Users size={12} />
-                      <span>Up to {space.max_capacity} guests</span>
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-[#111827] font-bold text-sm">
-                          {rate ? `₹${rate}` : 'N/A'}
-                        </span>
-                        <span className="text-[#6B7280] text-xs">/ hr</span>
-                      </div>
+                    <div className="mt-2">
+                      <span className="text-[#4ade80] font-semibold">₹{rate}</span>
+                      <span className="text-[#6b7c6e] text-sm"> / hr</span>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                )
+              })
+            )}
           </div>
         )}
       </main>

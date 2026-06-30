@@ -1,620 +1,369 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from './supabaseClient';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase.js';
-import {
-  MapPin, Users, Star, CheckCircle2, XCircle, Heart, Share,
-  ChevronLeft, Info, Shield, Sparkles, Wine, Cigarette, Music, UtensilsCrossed, HeartHandshake
-} from 'lucide-react';
+import { supabase } from './supabaseClient'; // Ensure this points to your client file
+import { MapPin, Users, Star, CheckCircle2, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const RULE_ICONS = {
-  allow_alcohol: Wine,
-  allow_smoking: Cigarette,
-  allow_loud_music: Music,
-  allow_outside_food: UtensilsCrossed,
-  allow_couples: HeartHandshake,
-};
+// ==========================================
+// 1. CALENDAR PICKER COMPONENT (Popup)
+// ==========================================
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
-const RULE_LABELS = {
-  allow_alcohol: 'Alcohol',
-  allow_smoking: 'Smoking',
-  allow_loud_music: 'Loud Music',
-  allow_outside_food: 'Outside Food',
-  allow_couples: 'Couples',
-};
+function CalendarPicker({ selectedDate, onSelectDate }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
+  const [viewDate, setViewDate] = useState(selectedDate || new Date(today.getFullYear(), today.getMonth(), 1));
+
+  const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+
+  const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+
+  const isSameDay = (a, b) => a && b && a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  const isPast = (d) => d < today;
+
+  return (
+    <div className="bg-[#142a1c] border border-[#2a4a34] rounded-xl p-4 w-72 shadow-2xl absolute top-full left-0 mt-2 z-50">
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={prevMonth} className="p-1.5 rounded-lg text-[#7fbd9a] hover:bg-[#0d1f15] transition-colors"><ChevronLeft size={18} /></button>
+        <span className="text-white text-sm font-medium">{MONTHS[viewDate.getMonth()]} {viewDate.getFullYear()}</span>
+        <button onClick={nextMonth} className="p-1.5 rounded-lg text-[#7fbd9a] hover:bg-[#0d1f15] transition-colors"><ChevronRight size={18} /></button>
+      </div>
+
+      <div className="grid grid-cols-7 mb-2">
+        {DAYS.map((d) => <div key={d} className="text-center text-[11px] text-[#7fbd9a] py-1">{d}</div>)}
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-1">
+        {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} />)}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1;
+          const date = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
+          const past = isPast(date);
+          const isToday = isSameDay(date, today);
+          const isSel = isSameDay(date, selectedDate);
+
+          return (
+            <button
+              key={day}
+              disabled={past}
+              onClick={() => onSelectDate(date)}
+              className={`aspect-square flex items-center justify-center rounded-lg text-sm transition-all mx-0.5 
+                ${isSel ? "bg-[#4ade80] text-[#0a1a0e] font-medium" : isToday ? "border border-[#4ade80] text-[#4ade80]" : past ? "text-[#2a4a34] cursor-not-allowed" : "text-gray-300 hover:bg-[#0d1f15] cursor-pointer"}`}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 2. TIME SLOT PICKER COMPONENT (Popup)
+// ==========================================
+const BASE_SLOTS = [
+  "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", 
+  "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", 
+  "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM"
+];
+const DURATIONS = [1, 2, 3, 4];
+
+function TimeSlotPicker({ bookedSlots, selSlot, setSelSlot, selDur, setSelDur, onClose }) {
+  const slots = BASE_SLOTS.map(time => ({
+    time,
+    occupied: bookedSlots.includes(time)
+  }));
+
+  return (
+    <div className="bg-[#142a1c] border border-[#2a4a34] rounded-xl p-5 w-80 shadow-2xl absolute top-full right-0 mt-2 z-50">
+      <div className="flex gap-4 mb-4 justify-center">
+        <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-2 h-2 rounded-full bg-[#4ade80]" /> Available</span>
+        <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-2 h-2 rounded-full bg-[#f87171]" /> Occupied</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-4 max-h-48 overflow-y-auto scrollbar-hide pr-1">
+        {slots.map((slot) => {
+          const isSel = selSlot === slot.time;
+          return (
+            <button
+              key={slot.time}
+              disabled={slot.occupied}
+              onClick={() => setSelSlot(slot.time)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left w-full transition-all text-xs
+                ${slot.occupied ? "bg-[#2a1315] border-[#f87171]/50 cursor-not-allowed opacity-60" 
+                : isSel ? "bg-[#0a2e12] border-[#4ade80]" : "bg-[#0d1f15] border-[#2a4a34] cursor-pointer hover:border-[#4ade80]/50"}`}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${slot.occupied ? "bg-[#f87171]" : "bg-[#4ade80]"} ${isSel ? "ring-2 ring-white" : ""}`} />
+              <span className={slot.occupied ? "text-[#f87171]" : isSel ? "text-[#4ade80]" : "text-gray-300"}>{slot.time}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selSlot && (
+        <div className="border-t border-[#2a4a34] pt-4 mt-2">
+          <p className="text-[10px] text-[#7fbd9a] mb-2 uppercase tracking-wide">Duration</p>
+          <div className="flex gap-2">
+            {DURATIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => { setSelDur(d); onClose(); }}
+                className={`flex-1 py-1.5 rounded-lg text-xs border transition-all
+                  ${selDur === d ? "bg-[#4ade80] text-[#0a1a0e] border-[#4ade80]" : "bg-[#0d1f15] text-gray-300 border-[#2a4a34] hover:border-[#4ade80]/50"}`}
+              >
+                {d}hr
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 3. MAIN DETAILS PAGE
+// ==========================================
 export default function DetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [space, setSpace] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedImage, setSelectedImage] = useState(0);
-  const [liked, setLiked] = useState(false);
 
-  // Booking states
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [slots, setSlots] = useState([]);
-  const [selectedSlot, setSelectedSlot] = useState(null);
-  const [selectedPurpose, setSelectedPurpose] = useState('');
-  const [guestCount, setGuestCount] = useState(1);
-  const [reserving, setReserving] = useState(false);
-  const [firebaseUser, setFirebaseUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+  // Booking State
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [selectedDuration, setSelectedDuration] = useState(1);
+  const [bookedSlots, setBookedSlots] = useState([]);
+  
+  // Popup Management
+  const [activePopup, setActivePopup] = useState(null); // 'date' | 'time' | null
+  const dropdownRef = useRef(null);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setFirebaseUser(u);
-      if (u) {
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('firebase_uid', u.uid)
-          .maybeSingle();
-        if (data) setUserProfile(data);
-      }
-    });
-    return () => unsub();
-  }, []);
-
+  // Fetch Space Details
   useEffect(() => {
     const fetchDetails = async () => {
       const { data, error } = await supabase
         .from('terraces')
-        .select(`
-          *,
-          terrace_rates ( rate, duration_type ),
-          terrace_permissions ( * ),
-          terrace_images ( image_url ),
-          terrace_light_data ( * )
-        `)
+        .select(`*, terrace_rates ( rate, duration_type ), terrace_permissions ( * ), terrace_images ( image_url )`)
         .eq('id', id)
         .single();
-
       if (!error) setSpace(data);
       setLoading(false);
     };
     fetchDetails();
   }, [id]);
 
+  // Fetch Booked Slots when Date Changes
   useEffect(() => {
-    if (!space) return;
+    if (!selectedDate) return;
+    
+    const fetchBookings = async () => {
+      const startOfDay = new Date(selectedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(selectedDate);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    const fetchSlots = async () => {
-      try {
-        const startOfDay = new Date(selectedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(selectedDate);
-        endOfDay.setHours(23, 59, 59, 999);
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('start_time') // Only need start time for UI disabling
+        .eq('terrace_id', id)
+        .gte('start_time', startOfDay.toISOString())
+        .lte('start_time', endOfDay.toISOString());
 
-        // Fetch bookings
-        const { data: bookingsData } = await supabase
-          .from('bookings')
-          .select('start_time, end_time, status')
-          .eq('terrace_id', id)
-          .in('status', ['CONFIRMED', 'ACTIVE'])
-          .gte('start_time', startOfDay.toISOString())
-          .lt('start_time', endOfDay.toISOString());
-
-        // Fetch holds
-        const { data: holdsData } = await supabase
-          .from('slot_holds')
-          .select('start_time, end_time, status')
-          .eq('terrace_id', id)
-          .eq('status', 'ACTIVE')
-          .gte('held_until', new Date().toISOString());
-
-        const newSlots = [];
-        const now = new Date();
-
-        // 7 AM to 8 PM, step 2 hours
-        for (let hour = 7; hour <= 19; hour += 2) {
-          const slotStart = new Date(selectedDate);
-          slotStart.setHours(hour, 0, 0, 0);
-          const slotEnd = new Date(selectedDate);
-          slotEnd.setHours(hour + 2, 0, 0, 0);
-
-          // 1. Cutoff if slot starts within 3 hours from now
-          const cutoffTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-          if (slotStart < cutoffTime) {
-            newSlots.push({ start: slotStart, end: slotEnd, label: `${hour}:00 - ${hour+2}:00`, status: 'cutoff' });
-            continue;
-          }
-
-          let isBooked = false;
-          let isBuffer = false;
-          let isHeld = false;
-
-          const overlaps = (s1, e1, s2, e2) => s1 < e2 && e1 > s2;
-
-          if (bookingsData) {
-            for (const b of bookingsData) {
-              const bStart = new Date(b.start_time);
-              const bEnd = new Date(b.end_time);
-              const bufferEnd = new Date(bEnd.getTime() + 45 * 60 * 1000); // 45 min buffer
-
-              if (overlaps(slotStart, slotEnd, bStart, bEnd)) {
-                isBooked = true;
-                break;
-              }
-              if (overlaps(slotStart, slotEnd, bEnd, bufferEnd)) {
-                isBuffer = true;
-              }
-            }
-          }
-
-          if (!isBooked && holdsData) {
-            for (const h of holdsData) {
-              const hStart = new Date(h.start_time);
-              const hEnd = new Date(h.end_time);
-              if (overlaps(slotStart, slotEnd, hStart, hEnd)) {
-                isHeld = true;
-                break;
-              }
-            }
-          }
-
-          const statusVal = isBooked
-            ? 'booked'
-            : isBuffer
-              ? 'buffer'
-              : isHeld
-                ? 'active'
-                : 'available';
-
-          newSlots.push({
-            start: slotStart,
-            end: slotEnd,
-            label: `${hour % 12 || 12} ${hour >= 12 ? 'PM' : 'AM'} - ${(hour + 2) % 12 || 12} ${(hour + 2) >= 12 ? 'PM' : 'AM'}`,
-            status: statusVal
-          });
-        }
-        setSlots(newSlots);
-        setSelectedSlot(null);
-      } catch (err) {
-        console.error("Error loading slots:", err);
+      if (!error && data) {
+        const formattedOccupiedSlots = data.map(booking => {
+          const dateObj = new Date(booking.start_time);
+          return dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); 
+        });
+        setBookedSlots(formattedOccupiedSlots);
       }
     };
+    fetchBookings();
+  }, [selectedDate, id]);
 
-    fetchSlots();
-  }, [space, selectedDate]);
+  // Close dropdowns if clicked outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setActivePopup(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F9FAFB] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#E5E7EB] border-t-[#10B981] rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const handleReserve = () => {
+    if (!selectedDate || !selectedTime) {
+      alert("Please select a date and time first!");
+      return;
+    }
+    // Proceed to checkout/Razorpay
+    alert(`Processing Reservation for ${selectedDate.toDateString()} at ${selectedTime} for ${selectedDuration} hours.`);
+  };
 
-  if (!space) {
-    return (
-      <div className="min-h-screen bg-[#F9FAFB] flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-[#111827]">Space not found</h2>
-          <button onClick={() => navigate('/')} className="mt-4 text-[#10B981] hover:underline text-sm">
-            Go back home
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen bg-[#0e1a12] text-white pl-64 pt-20 text-center">Loading details...</div>;
+  if (!space) return <div className="min-h-screen bg-[#0e1a12] text-white pl-64 pt-20 text-center">Space not found.</div>;
 
   const rate = space.terrace_rates?.[0]?.rate || 0;
-  const rawPermissions = space.terrace_permissions;
-  const permissions = (Array.isArray(rawPermissions) ? rawPermissions[0] : rawPermissions) || {};
-  const rawLight = space.terrace_light_data;
-  const lightData = (Array.isArray(rawLight) ? rawLight[0] : rawLight) || null;
-  const images = space.terrace_images?.map(i => i.image_url) || [];
-
-  const mainImage = images[0];
-  const sideImages = images.slice(1, 5);
+  const permissions = space.terrace_permissions?.[0] || {};
+  const images = space.terrace_images || [];
+  const totalPrice = rate * selectedDuration;
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] pb-20">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Breadcrumb & Actions */}
-        <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-[#6B7280] hover:text-[#111827] text-sm font-medium transition-colors"
-          >
-            <ChevronLeft size={18} />
-            Back to listings
-          </button>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setLiked(!liked)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
-                liked 
-                  ? 'border-[#EF4444] text-[#EF4444] bg-[#FEF2F2]' 
-                  : 'border-[#E5E7EB] text-[#111827] hover:bg-[#F9FAFB]'
-              }`}
-            >
-              <Heart size={16} className={liked ? 'fill-[#EF4444]' : ''} />
-              <span className="hidden sm:inline">Save</span>
-            </button>
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E7EB] text-[#111827] text-sm font-medium hover:bg-[#F9FAFB] transition-all">
-              <Share size={16} />
-              <span className="hidden sm:inline">Share</span>
-            </button>
+    <div className="min-h-screen bg-[#0e1a12] flex font-sans">
+      
+      {/* Assuming Sidebar is outside your routing or handled by a layout wrapper. 
+          If you don't have a Sidebar component, just remove this line. */}
+      {/* <Sidebar /> */}
+
+      <main className="flex-1 ml-0 lg:ml-64 p-8 lg:p-12 text-white max-w-7xl mx-auto">
+        <div className="mb-6 flex justify-between items-end">
+          <div>
+            <h1 className="text-3xl font-semibold mb-2">{space.title}</h1>
+            <div className="flex items-center gap-4 text-sm text-gray-300">
+              <span className="flex items-center gap-1 font-medium"><Star size={16} className="text-yellow-500 fill-yellow-500" /> 4.9</span>
+              <span className="underline cursor-pointer">11 Reviews</span>
+              <span className="flex items-center gap-1"><MapPin size={16}/> {space.address_line}, {space.city}</span>
+            </div>
           </div>
         </div>
 
-        {/* Title */}
-        <h1 className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#111827] mb-2">
-          {space.title}
-        </h1>
-        <div className="flex flex-wrap items-center gap-3 text-sm text-[#6B7280] mb-6">
-          <span className="flex items-center gap-1 font-medium text-[#111827]">
-            <Star size={16} className="text-[#F59E0B] fill-[#F59E0B]" /> 4.9
-          </span>
-          <span className="underline cursor-pointer text-[#111827]">11 reviews</span>
-          <span className="flex items-center gap-1">
-            <MapPin size={14} /> {space.address_line}, {space.city}
-          </span>
+        {/* Gallery */}
+        <div className="grid grid-cols-4 grid-rows-2 gap-2 h-[400px] mb-12 rounded-2xl overflow-hidden">
+          <div className="col-span-2 row-span-2 bg-[#1e3a28]">
+             {images[0] ? <img src={images[0].image_url} alt="Cover" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl">⛰️</div>}
+          </div>
+          <div className="col-span-1 row-span-1 bg-[#2a3f32]">{images[1] && <img src={images[1].image_url} alt="Gallery 1" className="w-full h-full object-cover" />}</div>
+          <div className="col-span-1 row-span-1 bg-[#1e3a28]">{images[2] && <img src={images[2].image_url} alt="Gallery 2" className="w-full h-full object-cover" />}</div>
+          <div className="col-span-2 row-span-1 bg-[#2a3f32]">{images[3] && <img src={images[3].image_url} alt="Gallery 3" className="w-full h-full object-cover" />}</div>
         </div>
 
-        {/* Photo Gallery */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded-2xl overflow-hidden mb-8 h-[300px] sm:h-[400px]">
-          <div className="relative bg-[#F3F4F6] cursor-pointer group">
-            {mainImage ? (
-              <img src={mainImage} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-6xl">🏞️</div>
-            )}
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-          </div>
-          <div className="hidden md:grid grid-cols-2 grid-rows-2 gap-2">
-            {sideImages.map((img, i) => (
-              <div key={i} className="relative bg-[#F3F4F6] cursor-pointer group overflow-hidden">
-                <img src={img} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+        <div className="flex flex-col lg:flex-row gap-12">
+          
+          <div className="flex-1">
+            <h2 className="text-2xl font-semibold mb-2">Entire Space hosted by Gusto</h2>
+            <p className="text-gray-400 mb-6 flex items-center gap-2"><Users size={18} /> Up to {space.max_capacity} guests</p>
+            <div className="w-full h-px bg-[#1e3a28] mb-8" />
+            <h3 className="text-xl font-medium mb-4">About this space</h3>
+            <p className="text-gray-300 leading-relaxed mb-8">{space.description}</p>
+            <div className="w-full h-px bg-[#1e3a28] mb-8" />
+            <h3 className="text-xl font-medium mb-4">House Rules</h3>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className={`flex items-center gap-2 p-3 rounded-xl border ${permissions.allow_alcohol ? 'border-green-900/50 text-green-400' : 'border-red-900/30 text-red-400'}`}>
+                {permissions.allow_alcohol ? <CheckCircle2 size={18} /> : <XCircle size={18} />} <span className="text-sm">Alcohol</span>
               </div>
-            ))}
-            {sideImages.length < 4 &&
-              [...Array(4 - sideImages.length)].map((_, i) => (
-                <div key={`empty-${i}`} className="bg-[#F3F4F6] flex items-center justify-center text-3xl text-[#D1D5DB]">
-                  🏞️
-                </div>
-              ))}
-          </div>
-        </div>
-
-        {/* Content Grid */}
-        <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
-          {/* Left Column */}
-          <div className="flex-1 min-w-0">
-            {/* Host Info */}
-            <div className="flex items-center gap-4 pb-6 border-b border-[#E5E7EB]">
-              <div className="w-12 h-12 rounded-full bg-[#10B981] text-white flex items-center justify-center font-semibold text-lg">
-                G
+              <div className={`flex items-center gap-2 p-3 rounded-xl border ${permissions.allow_smoking ? 'border-green-900/50 text-green-400' : 'border-red-900/30 text-red-400'}`}>
+                {permissions.allow_smoking ? <CheckCircle2 size={18} /> : <XCircle size={18} />} <span className="text-sm">Smoking</span>
               </div>
-              <div>
-                <h2 className="font-semibold text-[#111827]">Entire space hosted by Gusto</h2>
-                <p className="text-sm text-[#6B7280]">Up to {space.max_capacity} guests</p>
+              <div className={`flex items-center gap-2 p-3 rounded-xl border ${permissions.allow_loud_music ? 'border-green-900/50 text-green-400' : 'border-red-900/30 text-red-400'}`}>
+                {permissions.allow_loud_music ? <CheckCircle2 size={18} /> : <XCircle size={18} />} <span className="text-sm">Loud Music</span>
               </div>
-            </div>
-
-            {/* Description */}
-            <div className="py-6 border-b border-[#E5E7EB]">
-              <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827] mb-3">
-                About this space
-              </h3>
-              <p className="text-[#6B7280] leading-relaxed text-sm">
-                {space.description || "A beautiful open terrace perfect for your next gathering, photoshoot, or intimate event. Enjoy the city views with all the amenities you need for a memorable experience."}
-              </p>
-            </div>
-
-            {/* Light Data / Golden Hour */}
-            {lightData && (
-              <div className="py-6 border-b border-[#E5E7EB]">
-                <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827] mb-3">
-                  Golden Hour & Light Details
-                </h3>
-                <div className="bg-[#ECFDF5] border border-[#10B981]/10 rounded-xl p-4 flex items-start gap-3">
-                  <Sparkles className="text-[#10B981] shrink-0 mt-0.5" size={18} />
-                  <div className="text-sm text-[#065F46]">
-                    <p className="font-semibold">Best shoot period: {lightData.best_shoot_period || 'Afternoon'}</p>
-                    <p className="text-xs text-[#047857] mt-1">
-                      Golden hour starts at {lightData.golden_hour_start || '05:00 PM'} and ends at {lightData.golden_hour_end || '06:00 PM'}. Optimal lighting for portrait shoots and cinematic reels.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Amenities */}
-            <div className="py-6 border-b border-[#E5E7EB]">
-              <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827] mb-4">
-                What this place offers
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {space.amenities && space.amenities.map ? (
-                  space.amenities.map((a, i) => (
-                    <div key={i} className="flex items-center gap-3 text-sm text-[#111827]">
-                      <Sparkles size={18} className="text-[#6B7280]" />
-                      {a}
-                    </div>
-                  ))
-                ) : (
-                  ['High-speed WiFi', 'Sound system', 'Power backup', 'Restrooms', 'Parking available', 'Catering options'].map((a, i) => (
-                    <div key={i} className="flex items-center gap-3 text-sm text-[#111827]">
-                      <Sparkles size={18} className="text-[#6B7280]" />
-                      {a}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* House Rules */}
-            <div className="py-6 border-b border-[#E5E7EB]">
-              <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827] mb-4">
-                House rules
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(RULE_LABELS).map(([key, label]) => {
-                  const allowed = permissions[key] ?? true;
-                  const Icon = RULE_ICONS[key] || Info;
-                  return (
-                    <div
-                      key={key}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border ${
-                        allowed
-                          ? 'bg-[#ECFDF5] text-[#10B981] border-[#10B981]/20'
-                          : 'bg-[#FEF2F2] text-[#EF4444] border-[#EF4444]/20'
-                      }`}
-                    >
-                      <Icon size={14} />
-                      <span>{label}</span>
-                      {allowed ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Reviews */}
-            <div className="py-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Star size={20} className="text-[#F59E0B] fill-[#F59E0B]" />
-                <h3 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-[#111827]">
-                  4.9 · 11 reviews
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[1, 2, 3, 4].map((r) => (
-                  <div key={r} className="bg-white border border-[#E5E7EB] rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full bg-[#F3F4F6] flex items-center justify-center text-xs font-semibold text-[#6B7280]">
-                        U{r}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-[#111827]">User {r}</p>
-                        <p className="text-xs text-[#9CA3AF]">March 2025</p>
-                      </div>
-                    </div>
-                    <p className="text-sm text-[#6B7280]">
-                      Amazing space! Perfect for our photoshoot. The lighting was great and the host was very accommodating.
-                    </p>
-                  </div>
-                ))}
+              <div className={`flex items-center gap-2 p-3 rounded-xl border ${permissions.allow_outside_food ? 'border-green-900/50 text-green-400' : 'border-red-900/30 text-red-400'}`}>
+                {permissions.allow_outside_food ? <CheckCircle2 size={18} /> : <XCircle size={18} />} <span className="text-sm">Outside Food</span>
               </div>
             </div>
           </div>
 
-          {/* Right Column - Booking Card */}
-          <div className="w-full lg:w-[380px] shrink-0">
-            <div className="sticky top-24 bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-              <div className="mb-5 flex justify-between items-baseline">
-                <div>
-                  <span className="text-2xl font-bold text-[#111827]">₹{rate}</span>
-                  <span className="text-[#6B7280] text-sm"> / hour</span>
-                </div>
-                {userProfile && (
-                  <span className="text-xs font-semibold text-[#10B981] bg-[#ECFDF5] px-2 py-0.5 rounded-full">
-                    Bal: ₹{userProfile.wallet_balance}
-                  </span>
-                )}
+          {/* Right Column: Sticky Booking Card */}
+          <div className="w-full lg:w-[400px]">
+            <div className="sticky top-8 bg-[#141f17] border border-[#1e3a28] rounded-2xl p-6 shadow-2xl">
+              <div className="mb-6">
+                <span className="text-2xl font-semibold text-[#4ade80]">₹{rate}</span>
+                <span className="text-gray-400"> / hr</span>
               </div>
 
-              {/* Booking Form */}
-              <div className="space-y-4 mb-5">
-                {/* Date Input */}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-[#9CA3AF] mb-1">Date</label>
-                  <input
-                    type="date"
-                    min={todayStr}
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="w-full bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#10B981]"
-                  />
-                </div>
-
-                {/* Time Slots Grid */}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-[#9CA3AF] mb-1.5">Available Slots (2 hrs)</label>
-                  <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-[#E5E7EB] rounded-xl p-2 bg-[#F9FAFB]">
-                    {slots.map((s, idx) => {
-                      const isSelected = selectedSlot === idx;
-                      const isDisabled = s.status !== 'available';
-                      
-                      let btnStyle = "bg-white border-[#E5E7EB] text-[#111827]";
-                      let statusText = "";
-                      
-                      if (s.status === 'booked' || s.status === 'buffer') {
-                        btnStyle = "bg-[#FEF2F2] border-transparent text-[#EF4444] opacity-60 cursor-not-allowed";
-                        statusText = " (Booked)";
-                      } else if (s.status === 'active') {
-                        btnStyle = "bg-[#FFFBEB] border-transparent text-[#D97706] opacity-60 cursor-not-allowed";
-                        statusText = " (Held)";
-                      } else if (s.status === 'cutoff') {
-                        btnStyle = "bg-gray-100 border-transparent text-gray-400 cursor-not-allowed";
-                        statusText = " (Passed)";
-                      } else if (isSelected) {
-                        btnStyle = "bg-[#ECFDF5] border-[#10B981] text-[#10B981] font-semibold";
-                      }
-                      
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          disabled={isDisabled}
-                          onClick={() => setSelectedSlot(idx)}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-lg border transition-all ${btnStyle}`}
-                        >
-                          {s.label}{statusText}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Purpose Selector */}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-[#9CA3AF] mb-1">Purpose / Activity</label>
-                  <select
-                    value={selectedPurpose}
-                    onChange={(e) => setSelectedPurpose(e.target.value)}
-                    className="w-full bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#10B981]"
+              {/* Popups Container */}
+              <div className="relative border border-[#1e3a28] rounded-xl mb-4" ref={dropdownRef}>
+                <div className="flex">
+                  <div 
+                    onClick={() => setActivePopup(activePopup === 'date' ? null : 'date')}
+                    className={`flex-1 p-3 border-r border-[#1e3a28] hover:bg-[#1e3a28] transition-colors cursor-pointer rounded-l-xl ${activePopup === 'date' ? 'ring-2 ring-[#4ade80]' : ''}`}
                   >
-                    <option value="">-- Choose Purpose --</option>
-                    {(permissions.allowed_purposes || ['PARTY', 'CASUAL_MEETUP', 'OTHER']).map(p => (
-                      <option key={p} value={p}>{p.replace('_', ' ')}</option>
-                    ))}
-                  </select>
-                </div>
+                    <span className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Date</span>
+                    <span className={`text-sm ${selectedDate ? 'text-white' : 'text-gray-500'}`}>
+                      {selectedDate ? selectedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Add date'}
+                    </span>
+                  </div>
 
-                {/* Guest Count */}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-[#9CA3AF] mb-1">Guests (Max {space.max_capacity})</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={space.max_capacity}
-                    value={guestCount}
-                    onChange={(e) => setGuestCount(Math.min(space.max_capacity, Math.max(1, parseInt(e.target.value) || 1)))}
-                    className="w-full bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#10B981]"
-                  />
-                </div>
-              </div>
-
-              {selectedSlot !== null && selectedPurpose && (
-                <>
-                  <button
-                    onClick={async () => {
-                      if (!firebaseUser) {
-                        navigate('/login');
-                        return;
-                      }
-                      if (selectedSlot === null) return;
-                      
-                      const timeCost = rate * 2;
-                      const cleaningFee = 150;
-                      const platformFee = Math.round(timeCost * 0.18);
-                      const totalCharged = timeCost + cleaningFee + platformFee;
-
-                      if (!userProfile) {
-                        alert("Checking user profile...");
-                        return;
-                      }
-                      
-                      if (userProfile.wallet_balance < totalCharged) {
-                        alert(`Insufficient wallet balance! Booking costs ₹${totalCharged} but your balance is ₹${userProfile.wallet_balance}. Please add credits in Profile.`);
-                        return;
-                      }
-
-                      setReserving(true);
-                      try {
-                        const slot = slots[selectedSlot];
-                        
-                        // Deduct wallet balance
-                        const { error: balanceError } = await supabase
-                          .from('users')
-                          .update({ wallet_balance: userProfile.wallet_balance - totalCharged })
-                          .eq('id', userProfile.id);
-
-                        if (balanceError) throw balanceError;
-
-                        // Create booking
-                        const { error: bookingError } = await supabase
-                          .from('bookings')
-                          .insert({
-                            guest_id: userProfile.id,
-                            terrace_id: id,
-                            duration_type: 'HOURLY',
-                            start_time: slot.start.toISOString(),
-                            end_time: slot.end.toISOString(),
-                            purpose: selectedPurpose,
-                            guest_count: guestCount,
-                            status: 'CONFIRMED',
-                            duration_units: 2,
-                            rate_per_unit: rate,
-                            total_time_cost: timeCost,
-                            platform_fee: platformFee,
-                            total_charged: totalCharged,
-                            cleaning_fee: cleaningFee
-                          });
-
-                        if (bookingError) throw bookingError;
-
-                        alert("Reservation complete!");
-                        navigate('/bookings');
-                      } catch (err) {
-                        console.error(err);
-                        alert("Booking failed. Please try again.");
-                      } finally {
-                        setReserving(false);
-                      }
+                  <div 
+                    onClick={() => {
+                      if (!selectedDate) alert("Please select a date first!");
+                      else setActivePopup(activePopup === 'time' ? null : 'time');
                     }}
-                    disabled={reserving}
-                    className="w-full bg-[#10B981] hover:bg-[#059669] text-white font-semibold text-base rounded-xl py-3.5 transition-colors shadow-sm shadow-[#10B981]/20 flex items-center justify-center gap-2"
+                    className={`flex-1 p-3 hover:bg-[#1e3a28] transition-colors cursor-pointer rounded-r-xl ${activePopup === 'time' ? 'ring-2 ring-[#4ade80]' : ''}`}
                   >
-                    {reserving ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Reserving...
-                      </>
-                    ) : (
-                      "Reserve"
-                    )}
-                  </button>
-                  <p className="text-center text-[#9CA3AF] text-xs mt-3">Charges will be deducted from your wallet balance</p>
-
-                  {/* Price Breakdown */}
-                  <div className="mt-5 pt-5 border-t border-[#F3F4F6] space-y-2">
-                    <div className="flex justify-between text-sm text-[#6B7280]">
-                      <span>₹{rate} × 2 hrs</span>
-                      <span>₹{rate * 2}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-[#6B7280]">
-                      <span>Cleaning fee</span>
-                      <span>₹150</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-[#6B7280]">
-                      <span>Platform fee (18%)</span>
-                      <span>₹{Math.round(rate * 2 * 0.18)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-semibold text-[#111827] pt-2 border-t border-[#F3F4F6]">
-                      <span>Total</span>
-                      <span>₹{rate * 2 + 150 + Math.round(rate * 2 * 0.18)}</span>
-                    </div>
+                    <span className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Time</span>
+                    <span className={`text-sm ${selectedTime ? 'text-white' : 'text-gray-500'}`}>
+                      {selectedTime ? `${selectedTime} (${selectedDuration}hr)` : 'Select slot'}
+                    </span>
                   </div>
-                </>
-              )}
+                </div>
 
-              {selectedSlot === null && (
-                <div className="text-center text-sm text-[#6B7280] py-4 bg-gray-50 border border-dashed border-[#E5E7EB] rounded-xl">
-                  Please select an available date and time slot to reserve the space.
+                {activePopup === 'date' && (
+                  <CalendarPicker 
+                    selectedDate={selectedDate} 
+                    onSelectDate={(date) => {
+                      setSelectedDate(date);
+                      setSelectedTime(null);
+                      setActivePopup('time');
+                    }} 
+                  />
+                )}
+                
+                {activePopup === 'time' && (
+                  <TimeSlotPicker 
+                    bookedSlots={bookedSlots}
+                    selSlot={selectedTime} 
+                    setSelSlot={setSelectedTime} 
+                    selDur={selectedDuration}
+                    setSelDur={setSelectedDuration}
+                    onClose={() => setActivePopup(null)}
+                  />
+                )}
+              </div>
+
+              {/* Price Calculation display */}
+              {selectedTime && (
+                <div className="flex justify-between text-sm text-gray-300 mb-4 px-1">
+                  <span>₹{rate} × {selectedDuration} hour{selectedDuration > 1 ? 's' : ''}</span>
+                  <span className="text-white font-medium">₹{totalPrice}</span>
                 </div>
               )}
+
+              {/* Primary Action */}
+              <button 
+                onClick={handleReserve} 
+                className="w-full bg-[#4ade80] hover:bg-[#22c55e] text-[#0e1a12] font-semibold text-lg rounded-xl py-4 transition-colors mb-4"
+              >
+                Reserve
+              </button>
+              
+              <p className="text-center text-sm text-gray-400 mb-6">
+                You won't be charged yet
+              </p>
+
+              {/* Secondary Action: Map Location */}
+              {/* Note: This assumes your Supabase table has geo_lat and geo_lng. If not, fallback to just a map link using the city */}
+              <a 
+                href={space.geo_lat && space.geo_lng ? `https://www.google.com/maps/search/?api=1&query=${space.geo_lat},${space.geo_lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(space.address_line + ', ' + space.city)}`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 bg-transparent border border-[#2a4a34] hover:border-[#4ade80] text-gray-200 font-semibold text-lg rounded-xl py-4 transition-colors group"
+              >
+                <MapPin size={20} className="text-[#4ade80] group-hover:scale-110 transition-transform" />
+                View on Map
+              </a>
+
             </div>
           </div>
+
         </div>
-      </div>
+      </main>
     </div>
   );
 }

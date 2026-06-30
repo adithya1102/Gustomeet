@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../data/models/user_model.dart';
@@ -11,50 +12,50 @@ final firebaseUserProvider = StreamProvider<User?>((ref) {
 
 class AuthNotifier extends StateNotifier<AsyncValue<UserModel?>> {
   final AuthRepository _repo;
+  late final StreamSubscription<User?> _authSub;
 
-  AuthNotifier(this._repo) : super(const AsyncValue.data(null));
+  AuthNotifier(this._repo) : super(const AsyncValue.data(null)) {
+    _authSub = FirebaseAuth.instance
+        .authStateChanges()
+        .listen(_onAuthStateChanged);
+  }
 
-  Future<void> loadUser() async {
+  Future<void> _onAuthStateChanged(User? user) async {
+    if (user == null) {
+      state = const AsyncValue.data(null);
+      return;
+    }
     state = const AsyncValue.loading();
     try {
-      final userId = await _repo.getStoredUserId();
-      if (userId == null) {
-        state = const AsyncValue.data(null);
-        return;
-      }
-      final firebaseUser = FirebaseAuth.instance.currentUser;
-      if (firebaseUser == null) {
-        state = const AsyncValue.data(null);
-        return;
-      }
-      final user = await _repo.upsertSupabaseUser(firebaseUser);
-      state = AsyncValue.data(user);
+      final userModel = await _repo.upsertSupabaseUser(user);
+      state = AsyncValue.data(userModel);
     } catch (e, s) {
       state = AsyncValue.error(e, s);
     }
+  }
+
+  /// Called from SplashScreen to eagerly sync on app start.
+  Future<void> loadUser() async {
+    await _onAuthStateChanged(FirebaseAuth.instance.currentUser);
   }
 
   Future<void> signInWithGoogle() async {
     state = const AsyncValue.loading();
     try {
-      final cred = await _repo.signInWithGoogle();
-      final user = await _repo.upsertSupabaseUser(cred.user!);
-      state = AsyncValue.data(user);
+      await _repo.signInWithGoogle();
+      // authStateChanges stream will fire and call _onAuthStateChanged.
     } catch (e, s) {
       state = AsyncValue.error(e, s);
     }
   }
 
-  Future<String> sendOtp(String phone) async {
-    return _repo.sendOtp(phone);
-  }
+  Future<String> sendOtp(String phone) => _repo.sendOtp(phone);
 
   Future<void> verifyOtp(String verificationId, String otp) async {
     state = const AsyncValue.loading();
     try {
-      final cred = await _repo.verifyOtp(verificationId, otp);
-      final user = await _repo.upsertSupabaseUser(cred.user!);
-      state = AsyncValue.data(user);
+      await _repo.verifyOtp(verificationId, otp);
+      // authStateChanges stream will fire and call _onAuthStateChanged.
     } catch (e, s) {
       state = AsyncValue.error(e, s);
     }
@@ -62,10 +63,16 @@ class AuthNotifier extends StateNotifier<AsyncValue<UserModel?>> {
 
   Future<void> signOut() async {
     await _repo.signOut();
-    state = const AsyncValue.data(null);
+    // authStateChanges will emit null → state reset handled in _onAuthStateChanged.
   }
 
   void updateUser(UserModel user) => state = AsyncValue.data(user);
+
+  @override
+  void dispose() {
+    _authSub.cancel();
+    super.dispose();
+  }
 }
 
 final authProvider =
