@@ -6,9 +6,18 @@ plugins {
 }
 
 android {
-    namespace = "com.carevo.meetv1"
+    namespace = "com.carevo.gustomeets"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358"
+
+    signingConfigs {
+        create("release") {
+            keyAlias = "key"
+            keyPassword = "adithya" // REPLACE WITH YOUR ACTUAL KEYSTORE PASSWORD
+            storeFile = file("key.jks")
+            storePassword = "adithya" // REPLACE WITH YOUR ACTUAL KEYSTORE PASSWORD
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -16,10 +25,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.carevo.meetv1"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "com.carevo.gustomeets"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -28,9 +34,9 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
