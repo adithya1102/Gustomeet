@@ -1,35 +1,33 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'firebase_options.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/supabase_client.dart';
 
-import 'core/config/firebase_config.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase must be ready before Supabase so the accessToken closure can
-  // call FirebaseAuth immediately on the first Supabase request.
+  // Firebase init — log failures but NEVER return early; runApp() must always
+  // be called or the app shows a permanent black screen.
   try {
-    if (kIsWeb) {
-      await Firebase.initializeApp(options: firebaseWebOptions);
-    } else {
-      await Firebase.initializeApp();
-    }
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e) {
-    debugPrint('Firebase init error: $e');
+    debugPrint('Firebase init error (auth features will be unavailable): $e');
   }
 
+  // In supabase_flutter 2.x, `accessToken` is a direct top-level parameter
+  // of Supabase.initialize (NOT inside FlutterAuthClientOptions).
+  // `publishableKey` is the new name for what was previously `anonKey`.
   await Supabase.initialize(
     url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-    // Every Supabase DB/Storage request carries the Firebase JWT as the
-    // bearer token, enabling RLS policies that rely on auth.uid().
+    publishableKey: supabaseAnonKey,
     accessToken: () async =>
         await FirebaseAuth.instance.currentUser?.getIdToken(true),
   );

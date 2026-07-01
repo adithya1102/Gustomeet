@@ -1,4 +1,4 @@
-package com.carevo.meetv1
+package com.carevo.gustomeets
 
 import io.flutter.embedding.android.FlutterActivity
 
