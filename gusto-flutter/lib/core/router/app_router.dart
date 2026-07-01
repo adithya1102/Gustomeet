@@ -14,6 +14,7 @@ import '../../features/booking/booking_success_screen.dart';
 import '../../features/my_bookings/my_bookings_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/host_onboarding/host_onboarding_screen.dart';
+import '../../ui/login_new/login_screen_neo.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -86,6 +87,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/host/onboarding',
         builder: (context, state) => const HostOnboardingScreen(),
       ),
+      // ── Neo design-system test route ─────────────────────────────────────────
+      // Navigates to the Neobrutalist login screen without touching /auth.
+      GoRoute(
+        path: '/login-test',
+        builder: (context, state) => const LoginScreenNeo(),
+      ),
     ],
   );
 });
@@ -141,7 +148,7 @@ class HomeShell extends StatelessWidget {
         },
         child: Container(
           padding: const EdgeInsets.all(12),
-          child: Icon(icon, color: Colors.white.withOpacity(0.8), size: 24),
+          child: Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 24),
         ),
       );
     }

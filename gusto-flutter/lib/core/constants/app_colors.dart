@@ -23,7 +23,7 @@ const _dTextPrimary  = Color(0xFFFFFFFF);     // Pure White
 const _dTextSecondary= Color(0xFFCCCCCC);
 const _dBorder       = Color(0xFFFFFFFF);     // White borders in Dark Mode
 
-const _lBg           = Color(0xFFF9F9FB);     // Clean grid paper white/grey
+const _lBg           = Color(0xFFFBF5E9);     // Warm cream — Neobrutalist paper
 const _lSurface      = Color(0xFFFFFFFF);     // Stark White
 const _lSurfaceHigh  = Color(0xFFF3F3E7);
 const _lTextPrimary  = Color(0xFF000000);     // Stark Black
